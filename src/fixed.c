@@ -18,19 +18,33 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 
 #include "barrier.h"
 
 /* TODO: the barrier's state. What has to be shared between the threads, and
  *       what does each thread have to remember for itself? */
+typedef struct {
+    int n;
+    atomic_int count;      /* how many have arrived this round */
+    atomic_int sense;      /* flips every round                */
+} bar_t;
+
+static _Thread_local int my_sense; 
 
 static void *create(int nthreads)
 {
     /* TODO: allocate it, initialise everything, and return it. Anything a
      *       thread might lock or wait on has to be ready BEFORE the first
      *       thread can reach it. */
-    (void)nthreads;
-    return NULL;
+     bar_t *b = malloc(sizeof *b);
+    if (b == NULL) {
+        return NULL;
+    }
+    b->n = nthreads;
+    atomic_init(&b->count, 0);
+    atomic_init(&b->sense, 0);
+    return b;
 }
 
 static void wait_(void *p)
@@ -38,14 +52,29 @@ static void wait_(void *p)
     /* TODO: the barrier. Write the invariant you are keeping in a comment
      *       above it, in one line, before you write the code -- your report
      *       and your oral both ask you to state it. */
-    (void)p;
+
+    //invariant tracks the amount of threads at the current run through
+    bar_t *b = (bar_t *)p;
+
+    int local = !my_sense;             /* the value I am waiting to see */
+    my_sense  = local;
+
+    if (atomic_fetch_add(&b->count, 1) == b->n - 1) {
+        /* last one in: re-arm the counter, THEN release everybody */
+        atomic_store(&b->count, 0);
+        atomic_store(&b->sense, local);
+    } else {
+        while (atomic_load(&b->sense) != local) {
+            sched_yield();//lets other threads use CPU
+        }
+    }
 }
 
 static void destroy(void *p)
 {
     /* TODO: release what create() took. Every thread has been joined by the
      *       time this is called. */
-    (void)p;
+    free(p);
 }
 
 const bar_ops_t bar_fixed = { "fixed", create, wait_, destroy };

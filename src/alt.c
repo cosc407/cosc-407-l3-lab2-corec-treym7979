@@ -19,14 +19,42 @@
 
 /* TODO: the barrier's state. What has to be shared between the threads, and
  *       what does each thread have to remember for itself? */
+typedef struct {
+    int n;
+    int count;
+    int d;
+    pthread_mutex_t lock;
+    pthread_cond_t cv;
+} bar_t;
 
 static void *create(int nthreads)
 {
     /* TODO: allocate it, initialise everything, and return it. Anything a
      *       thread might lock or wait on has to be ready BEFORE the first
      *       thread can reach it. */
-    (void)nthreads;
-    return NULL;
+    //I did this on fixed by accident so transfering over
+    bar_t *b = malloc(sizeof *b);
+    if (b == NULL) {
+        return NULL;
+    }
+
+    b->n = nthreads;
+    b->count = 0;
+    b->d = 0;
+
+    int a = pthread_mutex_init(&b->lock, NULL);
+    if (a != 0) {
+        free(b);
+        return NULL;
+    }
+
+    a = pthread_cond_init(&b->cv, NULL);
+    if (a != 0) {
+        pthread_mutex_destroy(&b->lock);
+        free(b);
+        return NULL;
+    }
+    return b;
 }
 
 static void wait_(void *p)
@@ -34,14 +62,28 @@ static void wait_(void *p)
     /* TODO: the barrier. Write the invariant you are keeping in a comment
      *       above it, in one line, before you write the code -- your report
      *       and your oral both ask you to state it. */
-    (void)p;
+    bar_t *b = p;
+    pthread_mutex_lock(&b->lock);
+    int g = b->d;
+    b->count++;
+
+    if (b->count == b->n) {
+        b->count = 0;
+        b->d++;
+        pthread_cond_broadcast(&b->cv);
+    } else {
+        while (g == b->d) {
+            pthread_cond_wait(&b->cv, &b->lock);
+        }
+    }
+    pthread_mutex_unlock(&b->lock);
 }
 
 static void destroy(void *p)
 {
     /* TODO: release what create() took. Every thread has been joined by the
      *       time this is called. */
-    (void)p;
+    free(p);
 }
 
 const bar_ops_t bar_alt = { "alt", create, wait_, destroy };
